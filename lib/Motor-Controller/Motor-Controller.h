@@ -1,10 +1,10 @@
 #pragma once
 #include <Arduino.h>
 
-class Motor {
+class MotorController {
   public:
     // constructor
-    Motor(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two);
+    MotorController(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two);
 
     // pwm_freqHz: how fast the PWM switches
     // bits: PWM resolution; the duty value goes from 0 to (2^bits - 1)

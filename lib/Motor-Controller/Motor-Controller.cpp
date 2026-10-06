@@ -1,8 +1,8 @@
-#include "Motor.h"
+#include "Motor-Controller.h"
 
 // Goal: remember where this motor is wired.
 // Q: why is there nothing hardware-related here?
-Motor::Motor(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two){
+MotorController::MotorController(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two){
     pin1_ = pin1;
     pin2_ = pin2;
     ch1_ = LEDC_channel_one;
@@ -10,9 +10,9 @@ Motor::Motor(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_
 }
 
 // Goal: get the PWM hardware ready for both pins.
-void Motor::begin(uint32_t pwm_freqHz, uint8_t bits){
+void MotorController::begin(uint32_t pwm_freqHz, uint8_t bits){
     // compute maxDuty_ from bits  (2^bits - 1)
-    maxDuty_= (1 << bits) - 1;
+    maxDuty_= (1 << bits) - 1; // same as (2^bits - 1)
     // configure both channels   -> ledcSetup(channel, freq, bits)
     ledcSetup(ch1_, pwm_freqHz, bits);
     ledcSetup(ch2_, pwm_freqHz, bits);
@@ -24,7 +24,7 @@ void Motor::begin(uint32_t pwm_freqHz, uint8_t bits){
 }
 
 // Goal: recoord power correctly
-void Motor::setPower(float p){
+void MotorController::setPower(float p){
     if (p > 1){
         p = 1;
     }
@@ -40,7 +40,7 @@ void Motor::setPower(float p){
 }
 
 // Goal: move the motor's real power toward what was asked, at a controlled pace.
-void Motor::update(float dt){
+void MotorController::update(float dt){
     // dt is the time in seconds since the last update() call
     // slew limit off: setPower() already applied the power, nothing to ramp
     if (slew_ <= 0){
@@ -66,7 +66,7 @@ void Motor::update(float dt){
 }
 
 // Goal: turn a signed power into signals on the two pins.
-void Motor::apply(float p){
+void MotorController::apply(float p){
 
     if (p == 0) {
         ledcWrite(ch1_, 0);
@@ -95,7 +95,7 @@ void Motor::apply(float p){
 }
 
 // Goal: stop fast.
-void Motor::brake(){
+void MotorController::brake(){
     target_=0;
     current_=0;
     ledcWrite(ch1_, maxDuty_);
@@ -103,7 +103,7 @@ void Motor::brake(){
 }
 
 // Goal: stop gently.
-void Motor::coast(){
+void MotorController::coast(){
     target_=0;
     current_=0;
     ledcWrite(ch1_, 0);
@@ -111,7 +111,7 @@ void Motor::coast(){
 }
 
 // Setter : Deadband
-void Motor::setDeadband(float db){
+void MotorController::setDeadband(float db){
     if (db < 0.0f){
         db = 0.0f;
     }
@@ -122,13 +122,13 @@ void Motor::setDeadband(float db){
 }
 
 // Setter : SlewRate
-void Motor::setSlewRate(float perSec) {
+void MotorController::setSlewRate(float perSec) {
     if (perSec>=0){
         slew_=perSec;
     }
 }
 
 // Getter : Power
-float Motor::getPower() const{ 
+float MotorController::getPower() const{ 
     return current_; 
 }
