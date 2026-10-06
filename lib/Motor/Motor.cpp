@@ -1,70 +1,134 @@
 #include "Motor.h"
 
-// ---------- Constructor ----------
-// Store the pins and channels in the private members.
-// Use the initializer list: Motor::Motor(...) : pin1_(pin1), ... { }
-Motor::Motor(int pin1, int pin2, int LEDC_channel_one, int LEDC_channel_two)
-{
-    // TODO: nothing else is needed here; no hardware calls yet (that's begin's job)
+// Goal: remember where this motor is wired.
+// Q: why is there nothing hardware-related here?
+Motor::Motor(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two){
+    pin1_ = pin1;
+    pin2_ = pin2;
+    ch1_ = LEDC_channel_one;
+    ch2_ = LEDC_channel_two;
 }
 
-// ---------- begin ----------
-void Motor::begin(int pwm_freqHz, int bits)
-{
-    // TODO 1: compute maxDuty_ from bits  (2^bits - 1)
-    maxDuty_ = 2^bits - 1;
-    // TODO 2: configure both channels   -> ledcSetup(channel, freq, bits)
-    // TODO 3: attach each pin to its channel -> ledcAttachPin(pin, channel)
-    // TODO 4: start in a safe state     -> coast()
+// Goal: get the PWM hardware ready for both pins.
+void Motor::begin(uint32_t pwm_freqHz, uint8_t bits){
+    // compute maxDuty_ from bits  (2^bits - 1)
+    maxDuty_= (1 << bits) - 1;
+    // configure both channels   -> ledcSetup(channel, freq, bits)
+    ledcSetup(ch1_, pwm_freqHz, bits);
+    ledcSetup(ch2_, pwm_freqHz, bits);
+    // attach each pin to its channel -> ledcAttachPin(pin, channel)
+    ledcAttachPin(pin1_, ch1_);
+    ledcAttachPin(pin2_, ch2_);
+    // start in a safe state     -> coast()
+    coast();
 }
 
-// ---------- setPower ----------
-void Motor::setPower(float p)
-{
-    // TODO 1: clamp p to the range -1.0 .. +1.0 (constrain)
-    // TODO 2: store it in target_
-    // TODO 3: if slew limiting is off (slew_ <= 0), also set current_ = target_
-    //         and call apply(current_) right away
+// Goal: recoord power correctly
+void Motor::setPower(float p){
+    if (p > 1){
+        p = 1;
+    }
+    if (p < -1){
+        p=-1;
+    }
+    // after clamping the p
+    target_ = p;
+    if (slew_ <= 0) { // Slew rate is the rate of change of the power
+        current_ = target_;
+        apply(current_);
+    }
 }
 
-// ---------- update ----------
-void Motor::update(float dt)
-{
-    // TODO 1: if slew_ <= 0, there is nothing to do -> return
-    // TODO 2: maxStep = slew_ * dt   (the biggest change allowed this tick)
-    // TODO 3: diff = target_ - current_
-    // TODO 4: limit diff to the range -maxStep .. +maxStep
-    // TODO 5: current_ += diff
-    // TODO 6: apply(current_)
+// Goal: move the motor's real power toward what was asked, at a controlled pace.
+void Motor::update(float dt){
+    // dt is the time in seconds since the last update() call
+    // slew limit off: setPower() already applied the power, nothing to ramp
+    if (slew_ <= 0){
+        return;
+    }
+
+    // the most the power may change during this tick (power per second * seconds)
+    float maxStep = slew_ * dt;
+
+    // how far the applied power still is from the target (signed: + means go up, - means go down)
+    float diff = target_ - current_;
+
+    // clamp the gap to one step; if it is already smaller than a step, it is left unchanged,
+    // so current_ lands exactly on target_ with no overshoot
+    if (diff > maxStep)  diff = maxStep;
+    if (diff < -maxStep) diff = -maxStep;
+
+    // move the applied power by the limited step
+    current_ += diff;
+
+    // send the new power to the pins
+    apply(current_);
 }
 
-// ---------- apply (private) ----------
-void Motor::apply(float p)
-{
-    // TODO 1: if p == 0 -> coast and return
-    // TODO 2: mag = fabsf(p)   (the size, without the sign)
-    // TODO 3: deadband compensation: map mag from (0..1] to [deadband_..1]
-    //         mag = deadband_ + mag * (1 - deadband_)
-    // TODO 4: duty = (int)(mag * maxDuty_)
-    // TODO 5: if p > 0 -> PWM on channel one, 0 on channel two   (ledcWrite)
-    //         else     -> 0 on channel one, PWM on channel two
+// Goal: turn a signed power into signals on the two pins.
+void Motor::apply(float p){
+
+    if (p == 0) {
+        ledcWrite(ch1_, 0);
+        ledcWrite(ch2_, 0);
+        return;
+    }    
+    
+    float mag = fabsf(p); // abs value of p
+
+    //shifting everything up so the smallest request instead of 0%, and the biggest request is still 100%:
+    mag = deadband_ + mag * (1 - deadband_); // low + value × (high − low).
+    
+    // 0.5F was added because turns truncation into rounding-to-nearest Because C++ converts float to uint32_t
+    //  by truncating toward zero, not by rounding. Adding 0.5f before the cast turns truncation into rounding-to-nearest.
+    uint32_t duty = (uint32_t)(mag * maxDuty_ + 0.5f);
+
+    if (p > 0) { // write to one , set the other to 0
+        ledcWrite(ch1_, duty);   
+        ledcWrite(ch2_, 0);     
+    } 
+    else {
+        ledcWrite(ch1_, 0);    // reverse: the opposite
+        ledcWrite(ch2_, duty);
+    }
+
 }
 
-// ---------- brake ----------
-void Motor::brake()
-{
-    // TODO 1: target_ and current_ = 0
-    // TODO 2: both channels at maxDuty_  (both inputs high)
+// Goal: stop fast.
+void Motor::brake(){
+    target_=0;
+    current_=0;
+    ledcWrite(ch1_, maxDuty_);
+    ledcWrite(ch2_, maxDuty_);
 }
 
-// ---------- coast ----------
-void Motor::coast()
-{
-    // TODO 1: target_ and current_ = 0
-    // TODO 2: both channels at 0  (both inputs low)
+// Goal: stop gently.
+void Motor::coast(){
+    target_=0;
+    current_=0;
+    ledcWrite(ch1_, 0);
+    ledcWrite(ch2_, 0);
 }
 
-// ---------- setters and getter ----------
-void Motor::setDeadband(float db)     { /* TODO: store in deadband_ */ }
-void Motor::setSlewRate(float perSec) { /* TODO: store in slew_ */ }
-float Motor::getPower() const         { /* TODO: return current_ */ return 0; }
+// Setter : Deadband
+void Motor::setDeadband(float db){
+    if (db < 0.0f){
+        db = 0.0f;
+    }
+    if (db > 1.0f){
+        db = 0.9999f;
+    } 
+    deadband_ = db;
+}
+
+// Setter : SlewRate
+void Motor::setSlewRate(float perSec) {
+    if (perSec>=0){
+        slew_=perSec;
+    }
+}
+
+// Getter : Power
+float Motor::getPower() const{ 
+    return current_; 
+}
