@@ -1,0 +1,19 @@
+[project]
+name = "rov-mqtt"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ali Mohamed", email = "alymohamed220055@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "paho-mqtt>=2.1.0",
+]
+
+[project.scripts]
+rov-mqtt = "rov_mqtt:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
