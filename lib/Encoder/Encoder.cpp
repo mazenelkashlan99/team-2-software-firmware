@@ -10,6 +10,7 @@ Encoder::Encoder(uint8_t pinA, uint8_t pinB, uint8_t pcntUnit){
 }
 
 void Encoder::begin() {
+    lastRaw_ = 0;
     // ---- Channel 0: count edges on A, B decides direction ----
     pcnt_config_t cfgA = {};
     cfgA.pulse_gpio_num = pinA_;
@@ -53,7 +54,7 @@ void Encoder::update(float dt){
 
     // Read raw hardware counter (16-bit, wraps around)
     // writes the current hardware count into raw
-    // raw =means where the wheel is right now, according to the hardware.
+    // raw = means where the wheel is right now, according to the hardware.
     int16_t raw = 0;
     pcnt_get_counter_value((pcnt_unit_t)unit_, &raw);
     // Compute delta since last call, handling 16-bit wraparound.
@@ -79,28 +80,26 @@ int32_t Encoder::getDeltaTicks() const{
 }
 
 float Encoder::getDistanceM() const {
-    return ticks_ / ticksPerMeter_;
+    return (ticksPerMeter_ > 0.0f) ? ticks_ / ticksPerMeter_ : 0.0f;
 }
 
 float Encoder::getSpeedMps() const {
-    return speedTps_ / ticksPerMeter_ ;
+    return (ticksPerMeter_ > 0.0f) ? speedTps_ / ticksPerMeter_ : 0.0f;
 }
+
 
 float Encoder::getTicksPerSec() const {
     return speedTps_;
 }
 
 void Encoder::reset() {
-    // Clear the hardware counter first, so the next update()
-    // doesn't diff against a stale value.
+    pcnt_counter_pause((pcnt_unit_t)unit_);
     pcnt_counter_clear((pcnt_unit_t)unit_);
-
-    // Clear software state
     lastRaw_  = 0;
     ticks_    = 0;
     delta_    = 0;
     speedTps_ = 0.0f;
-
+    pcnt_counter_resume((pcnt_unit_t)unit_);
 }
 
 void Encoder::setTicksPerMeter(float ticksPerMeter){
