@@ -76,13 +76,12 @@ public:
 private:
     uint8_t pinA_;
     uint8_t pinB_;
-    uint8_t unit_; // mode selection for measurments
-
+    uint8_t unit_;               // PCNT unit index, unique per encoder instance
     int16_t lastRaw_   = 0;      // previous raw PCNT reading (16-bit wrap)
     int32_t ticks_     = 0;      // cumulative signed ticks (32-bit)
     int32_t delta_     = 0;      // ticks since the last update()
 
     float   speedTps_  = 0.0f;   // filtered speed, ticks per second
-    float   ticksPerMeter_ = 1.0f;
+    float   ticksPerMeter_ = 0.0f;
     float   alpha_         = 0.3f;
 };
