@@ -25,7 +25,7 @@ Item {
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        width: parent.width * 0.9
+        width: parent.width
         color: "transparent"
         border.width: 3
         border.color: (palette.window.hsvValue > 0.5) ? "black" : "white"
@@ -54,13 +54,4 @@ Item {
         }
     }
 
-    Rectangle {
-        id: terminal
-        anchors.left: batteryBody.right
-        anchors.verticalCenter: parent.verticalCenter
-        width: parent.width * 0.1
-        height: parent.height * 0.4
-        color: (palette.window.hsvValue > 0.5) ? "black" : "white"
-        radius: 3
-    }
 }
