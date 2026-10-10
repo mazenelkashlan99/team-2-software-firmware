@@ -2,10 +2,10 @@
 #include "imu_regs.h"
 
 namespace {
-constexpr float G_TO_MS2 = 9.80665f;
-constexpr float DEG_TO_RAD = 0.017453292519943f;
-constexpr float GYRO_SCALE = DEG_TO_RAD / GYRO_LSB_PER_DPS;
-constexpr float ACCEL_SCALE = G_TO_MS2 / ACCEL_LSB_PER_G;
+constexpr float G_TO_MS2_FACTOR = 9.80665f;
+constexpr float DEG_TO_RAD_FACTOR = 0.017453292519943f;
+constexpr float GYRO_SCALE = DEG_TO_RAD_FACTOR / GYRO_LSB_PER_DPS;
+constexpr float ACCEL_SCALE = G_TO_MS2_FACTOR / ACCEL_LSB_PER_G;
 
 int16_t toInt16(uint8_t hi, uint8_t lo) {
   return (int16_t)(((uint16_t)hi << 8) | lo);

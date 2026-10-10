@@ -1,7 +1,6 @@
 #include "Motor-Controller.h"
 
 // Goal: remember where this motor is wired.
-// Q: why is there nothing hardware-related here?
 MotorController::MotorController(uint8_t pin1, uint8_t pin2, uint8_t LEDC_channel_one, uint8_t LEDC_channel_two){
     pin1_ = pin1;
     pin2_ = pin2;
