@@ -60,7 +60,7 @@ class SpeedData(QObject):
 
         if self._speed != speed:
             self._speed = speed
-            self.speed_changed.emit()
+        self.speed_changed.emit()
 
 
 class BatteryData(QObject):
@@ -83,4 +83,4 @@ class BatteryData(QObject):
 
         if self._level != level:
             self._level = level
-            self.level_changed.emit()
+        self.level_changed.emit()

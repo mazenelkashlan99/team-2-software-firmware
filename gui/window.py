@@ -47,11 +47,11 @@ class Window(QMainWindow):
 
         self.speed_data = data.SpeedData()
         self.battery_data = data.BatteryData()
-        self.map_data = data.MapData()  # Instantiate Map Data
+        self.map_data = data.MapData()
 
         self.speed_widget = StatusWidget.SpeedWidget.get_widget(self.speed_data, self)
         self.battery_widget = StatusWidget.BatteryWidget.get_widget(self.battery_data, self)
-        self.map_widget = StatusWidget.MapWidget.get_widget(self.map_data, self)  # Instantiate Map Widget
+        self.map_widget = StatusWidget.MapWidget.get_widget(self.map_data, self)
 
         self.battery_widget.setMinimumSize(150, 60)
         self.battery_widget.setMaximumHeight(80)
@@ -99,11 +99,13 @@ class Window(QMainWindow):
         self._text_layout = QFormLayout()
         self._text_layout.setVerticalSpacing(10)
         self._text_layout.setHorizontalSpacing(15)
+        self._telemetry_labels = {}
 
         def add_telemetry_row(key_text, val_text):
             key_lbl = QLabel(key_text)
             val_lbl = QLabel(val_text)
             self._text_layout.addRow(key_lbl, val_lbl)
+            self._telemetry_labels[key_text] = val_lbl
 
         add_telemetry_row("Robot Position:", "x: 0.00, y: 0.00")
         add_telemetry_row("Robot Heading:", "0.00 rad")
@@ -152,3 +154,56 @@ class Window(QMainWindow):
         self.camera_timer.stop()
         self.camera.release()
         super().closeEvent(event)
+
+    def speed_changed(self, speed, angular_speed):
+        self.speed_data.speed = speed
+        self._telemetry_labels["Robot Velocity:"].setText(f"v: {speed:.2f}, w: {angular_speed:.2f}")
+
+    def position_changed(self, x, y, theta):
+        self.map_data.x = x
+        self.map_data.y = y
+        self.map_data.theta = theta
+        self._telemetry_labels["Robot Position:"].setText(f"x: {x:.2f}, y: {y:.2f}")
+        self._telemetry_labels["Robot Heading:"].setText(f"{theta:.2f} rad")
+
+    def battery_changed(self, voltage):
+        self.battery_data.level = (voltage / 5.0) * 100
+        self._telemetry_labels["Battery Voltage:"].setText(f"{voltage:.2f} V")
+
+    def update_operating_mode(self, mode):
+        self._telemetry_labels["Operating Mode:"].setText(mode)
+
+    def update_autonomous_state(self,  state):
+        self._telemetry_labels["Autonomous State:"].setText(state)
+
+    def update_position_validity(self, is_valid):
+        self._telemetry_labels["Position Validity:"].setText(str(is_valid))
+
+    def update_communication_link(self, status):
+        if status:
+            connect = "CONNECTED"
+        else:
+            connect = "DISCONNECTED"
+        self._telemetry_labels["Comm Link Status:"].setText(connect)
+
+    def update_robot_status(self, status):
+        if status:
+            connect = "ONLINE"
+        else:
+            connect = "OFFLINE"
+        self._telemetry_labels["Robot Status:"].setText(connect)
+
+    def update_mission_event(self, event):
+        self._telemetry_labels["Mission Events:"].setText(event)
+
+    def update_system_logs(self, status):
+        self._telemetry_labels["System Logs:"].setText(status)
+
+    def update_communication_latency(self, ping_id, t_send, rtt):
+        self._telemetry_labels["Comm Latency:"].setText(f"ping_id: {ping_id}, t_send: {t_send}, RTT: {rtt} ms")
+
+    def update_qr_detection(self, valid, raw, x, y):
+        self._telemetry_labels["QR Detection:"].setText(f"valid: {valid}, raw: '{raw}', x: {x:.2f}, y: {y:.2f}")
+
+    def update_color_detection(self,  color):
+        self._telemetry_labels["Color Detection:"].setText(color)
