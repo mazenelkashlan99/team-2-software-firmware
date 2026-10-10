@@ -30,7 +30,7 @@ class Camera:
             if success:
                 with self.lock:
                     self._frame = image
-            #time.sleep(0.01)
+            time.sleep(0.01)
 
     @property
     def frame(self):
