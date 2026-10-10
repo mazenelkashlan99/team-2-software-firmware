@@ -12,7 +12,10 @@ import StatusWidget
 
 class Camera:
     def __init__(self) -> None:
-        self.capture = cv2.VideoCapture(0)
+        self.capture = cv2.VideoCapture(
+            "rtsp://192.168.1.2:554/stream",
+            cv2.CAP_FFMPEG
+        )
         self.is_running = True
         self._frame = None
         self.empty_frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -27,7 +30,7 @@ class Camera:
             if success:
                 with self.lock:
                     self._frame = image
-            time.sleep(0.01)
+            #time.sleep(0.01)
 
     @property
     def frame(self):
@@ -78,7 +81,7 @@ class Window(QMainWindow):
         self.camera = Camera()
         self.camera_timer = QTimer(self)
         self.camera_timer.timeout.connect(self.update_camera_feed)
-        self.camera_timer.start(33)
+        self.camera_timer.start(5)
 
         self._bottom_layout = QHBoxLayout()
 
@@ -132,23 +135,49 @@ class Window(QMainWindow):
         self._bottom_layout.addLayout(self._center_layout, stretch=1)
         self._bottom_layout.addLayout(self._right_layout, stretch=1)
 
-        self._main_layout.addWidget(self._camera_label, stretch=3)
-        self._main_layout.addLayout(self._bottom_layout, stretch=2)
+        self._main_layout.addWidget(self._camera_label, stretch=5)
+        self._main_layout.addLayout(self._bottom_layout, stretch=3)
 
         self.setCentralWidget(self._central_widget)
         self.show()
 
+
     def update_camera_feed(self):
         frame = self.camera.frame
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
         h, w, ch = frame.shape
         bytes_per_line = ch * w
 
-        qt_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-        scaled_image = qt_img.scaled(self._camera_label.width(), self._camera_label.height(),
-                                     Qt.AspectRatioMode.KeepAspectRatio,
-                                     Qt.TransformationMode.FastTransformation)
+        qt_img = QImage(
+            frame.data,
+            w,
+            h,
+            bytes_per_line,
+            QImage.Format.Format_RGB888
+        )
+
+        label_width = self._camera_label.width()
+        label_height = self._camera_label.height()
+
+        scaled_image = qt_img.scaled(
+            label_width,
+            label_height,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        x = (scaled_image.width() - label_width) // 2
+        y = (scaled_image.height() - label_height) // 2
+
+        scaled_image = scaled_image.copy(
+            x, y, label_width, label_height
+        )
+
         self._camera_label.setPixmap(QPixmap.fromImage(scaled_image))
+
+
+
 
     def closeEvent(self, event):
         self.camera_timer.stop()
