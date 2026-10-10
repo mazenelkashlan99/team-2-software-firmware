@@ -1,48 +1,100 @@
+import cv2
+import threading
+import time
+import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFormLayout, QGroupBox, QSizePolicy)
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QImage, QPixmap
 import data
 import StatusWidget
+
+
+class Camera:
+    def __init__(self) -> None:
+        self.capture = cv2.VideoCapture(0)
+        self.is_running = True
+        self._frame = None
+        self.empty_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.lock = threading.Lock()
+
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+
+    def _capture_loop(self) -> None:
+        while self.is_running:
+            success, image = self.capture.read()
+            if success:
+                with self.lock:
+                    self._frame = image
+            time.sleep(0.01)
+
+    @property
+    def frame(self):
+        with self.lock:
+            return self._frame if self._frame is not None else self.empty_frame
+
+    def release(self):
+        self.is_running = False
+        self.capture.release()
 
 
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Robot Telemetry Dashboard")
-        self.resize(1150, 600)
+        self.resize(1150, 800)
 
         self.speed_data = data.SpeedData()
         self.battery_data = data.BatteryData()
+        self.map_data = data.MapData()  # Instantiate Map Data
 
         self.speed_widget = StatusWidget.SpeedWidget.get_widget(self.speed_data, self)
         self.battery_widget = StatusWidget.BatteryWidget.get_widget(self.battery_data, self)
+        self.map_widget = StatusWidget.MapWidget.get_widget(self.map_data, self)  # Instantiate Map Widget
 
+        self.battery_widget.setMinimumSize(150, 60)
+        self.battery_widget.setMaximumHeight(80)
 
-        self.battery_widget.setFixedSize(150, 60)
-        self.speed_widget.setFixedSize(350, 250)
+        self.speed_widget.setMinimumSize(350, 250)
+        self.speed_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.speed_widget.setMaximumHeight(300)
+
+        # Map widget sizing
+        self.map_widget.setMinimumSize(250, 250)
+        self.map_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self._central_widget = QWidget(self)
-        self._main_layout = QHBoxLayout(self._central_widget)
+        self._main_layout = QVBoxLayout(self._central_widget)
         self._main_layout.setContentsMargins(15, 15, 15, 15)
         self._main_layout.setSpacing(20)
 
-        self._left_layout = QVBoxLayout()
-        self._left_layout.setSpacing(20)
-
-        self._left_layout.addWidget(self.battery_widget,
-                                    alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        self._left_layout.addWidget(self.speed_widget,
-                                    alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        self._left_layout.addStretch()
-
-        self._camera_label = QLabel("Camera Feed Placeholder\n(NO SIGNAL)")
+        self._camera_label = QLabel("Initializing Camera...")
         self._camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._camera_label.setFrameStyle(QLabel.Shape.Box | QLabel.Shadow.Plain)
-        self._camera_label.setLineWidth(1)
-        self._camera_label.setMinimumSize(450, 350)
+        self._camera_label.setStyleSheet("background-color: black;")
+        self._camera_label.setMinimumSize(640, 360)
 
+        self.camera = Camera()
+        self.camera_timer = QTimer(self)
+        self.camera_timer.timeout.connect(self.update_camera_feed)
+        self.camera_timer.start(33)
+
+        self._bottom_layout = QHBoxLayout()
+
+        # 1. Left: Battery and Speed
+        self._left_layout = QVBoxLayout()
+        self._left_layout.setSpacing(20)
+        self._left_layout.addWidget(self.battery_widget, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._left_layout.addWidget(self.speed_widget, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._left_layout.addStretch()
+
+        # 2. Center: 2D Map
+        self._center_layout = QVBoxLayout()
+        self._center_layout.addWidget(self.map_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 3. Right: Telemetry
         self._right_layout = QVBoxLayout()
-
         self._text_group = QGroupBox("ROBOT TELEMETRY")
         self._text_layout = QFormLayout()
         self._text_layout.setVerticalSpacing(10)
@@ -70,13 +122,33 @@ class Window(QMainWindow):
         add_telemetry_row("Color Detection:", "N/A")
 
         self._text_group.setLayout(self._text_layout)
-
-        self._right_layout.addWidget(self._text_group, alignment=Qt.AlignmentFlag.AlignTop)
+        self._right_layout.addWidget(self._text_group)
         self._right_layout.addStretch()
 
-        self._main_layout.addLayout(self._left_layout, stretch=2)
-        self._main_layout.addWidget(self._camera_label, stretch=4)
-        self._main_layout.addLayout(self._right_layout, stretch=3)
+        # Add all three columns to the bottom layout
+        self._bottom_layout.addLayout(self._left_layout, stretch=1)
+        self._bottom_layout.addLayout(self._center_layout, stretch=1)
+        self._bottom_layout.addLayout(self._right_layout, stretch=1)
+
+        self._main_layout.addWidget(self._camera_label, stretch=3)
+        self._main_layout.addLayout(self._bottom_layout, stretch=2)
 
         self.setCentralWidget(self._central_widget)
         self.show()
+
+    def update_camera_feed(self):
+        frame = self.camera.frame
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = frame.shape
+        bytes_per_line = ch * w
+
+        qt_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+        scaled_image = qt_img.scaled(self._camera_label.width(), self._camera_label.height(),
+                                     Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.FastTransformation)
+        self._camera_label.setPixmap(QPixmap.fromImage(scaled_image))
+
+    def closeEvent(self, event):
+        self.camera_timer.stop()
+        self.camera.release()
+        super().closeEvent(event)

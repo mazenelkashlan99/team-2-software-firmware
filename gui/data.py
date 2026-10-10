@@ -1,6 +1,45 @@
 from PySide6.QtCore import Signal, Property, QObject
 
 
+class MapData(QObject):
+    position_changed = Signal()
+
+    def __init__(self, x: float = 0.0, y: float = 0.0, theta: float = 0.0):
+        super().__init__()
+        self._x = x
+        self._y = y
+        self._theta = theta
+
+    @Property(float, notify=position_changed)
+    def x(self):
+        return self._x
+
+    @x.setter
+    def x(self, val: float):
+        if self._x != val:
+            self._x = val
+            self.position_changed.emit()
+
+    @Property(float, notify=position_changed)
+    def y(self):
+        return self._y
+
+    @y.setter
+    def y(self, val: float):
+        if self._y != val:
+            self._y = val
+            self.position_changed.emit()
+
+    @Property(float, notify=position_changed)
+    def theta(self):
+        return self._theta
+
+    @theta.setter
+    def theta(self, val: float):
+        if self._theta != val:
+            self._theta = val
+            self.position_changed.emit()
+
 class SpeedData(QObject):
     speed_changed = Signal()
 
