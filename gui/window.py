@@ -1,13 +1,17 @@
 import cv2
+import math
 import threading
 import time
 import numpy as np
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QFormLayout, QGroupBox, QSizePolicy)
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer , Signal ,Slot
 from PySide6.QtGui import QImage, QPixmap
 import data
 import StatusWidget
+from rov_mqtt.mqtt_client import MQTTClient
+import json
+
 
 
 class Camera:
@@ -43,7 +47,9 @@ class Camera:
 
 
 class Window(QMainWindow):
+    mqtt_message_received = Signal(str,str)
     def __init__(self):
+        
         super().__init__()
         self.setWindowTitle("Robot Telemetry Dashboard")
         self.resize(1150, 800)
@@ -139,6 +145,14 @@ class Window(QMainWindow):
         self._main_layout.addLayout(self._bottom_layout, stretch=3)
 
         self.setCentralWidget(self._central_widget)
+        self.mqtt_message_received.connect(self.handle_mqtt_message)
+        self.mqtt_client=MQTTClient(client_id="rov_gui")
+        self.mqtt_client.set_message_callback(self._on_mqtt_message_from_thread)
+        self._ping_id = 0
+        self.mqtt_client.connect()
+        self.ping_timer = QTimer(self)
+        self.ping_timer.timeout.connect(self._send_ping)
+        self.ping_timer.start(1000)
         self.show()
 
 
@@ -176,13 +190,114 @@ class Window(QMainWindow):
 
         self._camera_label.setPixmap(QPixmap.fromImage(scaled_image))
 
+    def _on_mqtt_message_from_thread(self,topic,payload):
+        self.mqtt_message_received.emit(topic,payload)
 
+    @Slot(str,str)
+    def handle_mqtt_message(self,topic,payload):
+        try:
+            message = json.loads(payload)
+        except json.JSONDecodeError:
+            print(f"Invalid Json received on {topic}")
+            return
+        if not isinstance(message, dict):
+            print(f"Expected a JSON object on {topic}")
+            return
 
+        if topic == "robot/status/online":
+            self.update_robot_status(message.get("status") == "online")
+
+        elif topic == "robot/status/event":
+            event = message.get("ev", "NONE")
+            detail = message.get("detail", "NONE")
+            self.update_mission_event(f"ev: {event}, detail: {detail}")
+
+        elif topic == "robot/state/mission":
+            loaded = message.get("loaded")
+            event = "MISSION_LOADED" if loaded is True else "MISSION_CLEARED"
+            detail = message.get("detail", "NONE")
+            self.update_mission_event(f"ev: {event}, detail: {detail}")
+
+        elif topic == "robot/state/pong":
+            ping_id = message.get("ping_id")
+            t_send = message.get("t_send")
+
+            if ping_id is not None and t_send is not None:
+                rtt = (time.time()-float(t_send))*1000
+
+                self.update_communication_latency(
+                    ping_id,
+                    t_send,
+                    round(rtt,2),
+                )
+
+        elif topic == "robot/log":
+            level = message.get("level", "INFO")
+            log_message = message.get("message", "none")
+
+            self.update_system_logs(
+                f"level: {level}, message: {log_message}"
+            )
+
+        elif topic == "robot/state/telemetry":
+            self.speed_changed(
+                message.get("v",0.0),
+                message.get("w",0.0)
+            )
+            self.position_changed(
+                message.get("x",0.0),
+                message.get("y",0.0),
+                message.get("theta",0.0)
+            )
+            self.update_operating_mode(message.get("mode","UNKNOWN"))
+            self.update_arm_status(message.get("arm","UNKNOWN"))
+            self.update_autonomous_state(message.get("auto_state","UNKNOWN"))
+            self.update_position_validity(message.get("pose_valid",False))
+            self.update_communication_link(message.get("link_ok",False))
+            self._telemetry_labels["Battery Voltage:"].setText(
+                f"{message.get('batt_v',0.0):.1f} V"
+            )
+        elif topic == "robot/state/qr":
+            valid = message.get("valid", False)
+            raw = message.get("raw", "")
+            x = message.get("x")
+            y = message.get("y")
+
+            def safe_coordinate(value):
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return 0.0
+                try:
+                    value = float(value)
+                except (OverflowError, ValueError):
+                    return 0.0
+                return value if math.isfinite(value) else 0.0
+
+            self.update_qr_detection(
+                valid,
+                raw,
+                safe_coordinate(x),
+                safe_coordinate(y),
+            )
+
+        elif topic == "robot/state/color":
+            color = message.get("color", "N/A")
+            self.update_color_detection(color)
+
+    def _send_ping(self):
+        self._ping_id += 1
+        t_send = time.time()
+        self.mqtt_client.publish_ping(
+            ping_id=self._ping_id,
+            t_send=t_send,
+        )
 
     def closeEvent(self, event):
         self.camera_timer.stop()
+        self.ping_timer.stop()
         self.camera.release()
+        self.mqtt_client.disconnect()
         super().closeEvent(event)
+        
 
     def speed_changed(self, speed, angular_speed):
         self.speed_data.speed = speed
@@ -236,3 +351,6 @@ class Window(QMainWindow):
 
     def update_color_detection(self,  color):
         self._telemetry_labels["Color Detection:"].setText(color)
+
+    def update_arm_status(self,status):
+        self._telemetry_labels["Arm Status:"].setText(status)

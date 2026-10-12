@@ -1,6 +1,9 @@
-from PySide6.QtWidgets import QWidget, QApplication, QMainWindow
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtCore import QUrl, QObject
+# Register Qt DLL search paths before importing PySide6 or creating a QML engine.
+from qt_runtime import configure_qt_dll_search_path
+
+configure_qt_dll_search_path()
+
+from PySide6.QtWidgets import QApplication
 from window import Window
 
 def main():

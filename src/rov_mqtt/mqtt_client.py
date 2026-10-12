@@ -2,8 +2,9 @@ import paho.mqtt.client as mqtt
 from typing import Callable
 from paho.mqtt.client import CallbackAPIVersion
 import json
-from threading import Event, Thread
+from threading import Event, Thread ,Lock
 import time
+from uuid import uuid4
 
 class MQTTClient:
     def __init__(
@@ -16,9 +17,12 @@ class MQTTClient:
         self.broker_host = broker_host
         self.broker_port = broker_port
 
+        self.sid =str(uuid4())  # Unique session ID for this client instance
+        self._message_seq = 0 # Sequence number for heartbeat messages
+        self._sequence_lock = Lock()  # Lock for sequence number updates
+
         self._heartbeat_stop = Event()
         self._heartbeat_thread: Thread | None = None
-        self._heartbeat_seq = 0
         self._heartbeat_envelope_factory=( 
             heartbeat_envelope_factory
             if heartbeat_envelope_factory is not None
@@ -26,6 +30,7 @@ class MQTTClient:
         self.client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2,
                                   client_id=client_id,)
         self.client.on_connect = self._on_connect
+        self.client.on_subscribe = self._on_subscribe
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
 
@@ -37,10 +42,7 @@ class MQTTClient:
 
 
     def _create_heartbeat_envelope(self)-> dict [str,object]:
-        self._heartbeat_seq +=1
-        return{ "v":1,
-               "seq": self._heartbeat_seq,
-               "ts": int(time.time()*1000),}
+        return{ "ts": int(time.time()*1000),}
     def connect(self) -> None:                      #handeling the broker connection
         self.client.connect(
             self.broker_host,
@@ -54,7 +56,25 @@ class MQTTClient:
         self.client.disconnect()
 
     def publish(self,topic : str ,payload: str,qos : int = 0 ) -> None:
-        self.client.publish(topic,payload,qos=qos)
+        try:
+            message_data = json.loads(payload)
+        except json.JSONDecodeError:
+            message_data={"data": payload}
+
+        if not isinstance(message_data,dict):
+            message_data ={"data": payload}
+
+        with self._sequence_lock:
+            self._message_seq +=1
+            sequence = self._message_seq
+
+        message_data["ver"]=1
+        message_data["sid"] = self.sid
+        message_data["seq"] = sequence
+
+        payload_json = json.dumps(message_data)
+        self.client.publish(topic,payload_json,qos=qos)
+        
 
     def subscribe(self,topic:str,qos:int = 0)-> None:
         self.client.subscribe(
@@ -68,18 +88,26 @@ class MQTTClient:
 
     def _on_connect(self,client,userdata,flags,reason_code,properties,) -> None:
         print(f"Connected to MQTT broker: {reason_code}")
+        if reason_code != 0:
+            return
         self.subscribe_telemetry()
         self.subscribe_state_mode()
+        self.subscribe_mission_state()
         self.subscribe_status_online()
         self.subscribe_status_event()
         self.subscribe_robot_heartbeat()
         self.subscribe_pong()
         self.subscribe_log()
+        self.subscribe_qr_state()
+        self.subscribe_color_state()
         if self._heartbeat_envelope_factory is not None:
             self.start_console_heartbeat(
                 self._heartbeat_envelope_factory,rate_hz=10.0,
             )
         print("All subscriptions requested.")
+
+    def _on_subscribe(self, client, userdata, mid, reason_code_list, properties) -> None:
+        print(f"MQTT subscription acknowledged (mid={mid}): {reason_code_list}")
 
     def _on_disconnect(self,client,userdata,flags,reason_code,properties,) -> None:
         print(f"DisConnected to MQTT broker: {reason_code}")
@@ -302,15 +330,25 @@ class MQTTClient:
         interval = 1.0 / rate_hz
 
         def heartbeat_loop() -> None:
+            next_send = time.monotonic()
             while not self._heartbeat_stop.is_set():
+                remaining = next_send - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+                if self._heartbeat_stop.is_set():
+                    break
                 try:
                     envelope = envelope_factory()
                     self.publish_console_heartbeat(envelope)
                 except Exception as error:
                     print(f"Heartbeat error: {error}")
 
-                self._heartbeat_stop.wait(interval)
 
+                next_send += interval
+                
+                now = time.monotonic()
+                if next_send < now:
+                    next_send = now + interval
         self._heartbeat_thread = Thread(
             target=heartbeat_loop,
             daemon=True,
@@ -368,6 +406,10 @@ class MQTTClient:
         self.subscribe(topic="robot/state/mode",
                        qos=1,)
 
+    def subscribe_mission_state(self) -> None:
+        self.subscribe(topic="robot/state/mission",
+                       qos=1,)
+
     def subscribe_status_online(self) -> None:
         self.subscribe(topic="robot/status/online",
                        qos=1,)
@@ -395,3 +437,9 @@ class MQTTClient:
             topic="robot/log",
             qos=0,
         )
+
+    def subscribe_qr_state(self):
+        self.subscribe(topic="robot/state/qr", qos=1)
+
+    def subscribe_color_state(self):
+        self.subscribe(topic="robot/state/color", qos=1)
