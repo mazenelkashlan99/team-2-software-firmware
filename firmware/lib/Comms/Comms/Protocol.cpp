@@ -351,7 +351,12 @@ namespace robot
             MsgType t = typeFromTopic(topicName);
             if (t == MsgType::UNKNOWN)
                 return DecodeError::UNKNOWN_TOPIC;
+
+            if (t == MsgType::ESTOP)
+                return DecodeError::OK;
+
             out.type = t;
+
 
             if (payload == nullptr || len == 0 || len > MAX_PAYLOAD)
                 return DecodeError::BAD_JSON;
