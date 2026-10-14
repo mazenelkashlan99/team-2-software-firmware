@@ -1,24 +1,33 @@
 #pragma once
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include "Protocol.h"
-#include "ModeManager.h"
+#include "robot_interfaces.h"
 
-struct DriveCmd {
-    float    thr;    // -1..1
-    float    turn;   // -1..1
-    uint32_t rxMs;   // millis() when received
-};
+// WiFi + MQTT link to the console.
+//
+// Owns g_driveQ and g_eventQ. The task receives MQTT traffic, decodes
+// via Protocol, and pushes to those queues. Producers (main, autonomy)
+// read from them.
 
-extern QueueHandle_t g_driveQ;   // length 1, always holds only the NEWEST drive command
-extern QueueHandle_t g_eventQ;   // robot::proto::Message: MODE, ESTOP_RESET, START, GOTO,
-                                 // ARM, POSE_SET, MISSION, CV_QR, CV_COLOR
-extern robot::ModeManager g_modeManager;   // defined once, in main.cpp
+// Creates the queues. Call from setup() before commsTask() runs.
+void commsInit();
 
-void commsInit();            // creates the queues; call before starting the task
-void commsTask(void* arg);   // FreeRTOS task, pin it to core 0
-bool commsLinkOk();          // true while the console heartbeat is fresh
+// FreeRTOS task entry. Blocking loop; never returns.
+void commsTask(void* arg);
 
-// Implemented by main.cpp: fills pose, arm, autoState and battV.
-// (mode and linkOk are filled here.)
+// Cross-task read: is the console link alive?
+// True while the broker is connected AND a console heartbeat arrived
+// within the link timeout. Read by control_task for mode gating.
+bool commsLinkOk();
+
+// Latest drive command, overwrite slot. Producer: onMqttMessage.
+// Consumer: control_task. Reading does not consume (peek semantics).
+extern QueueHandle_t g_driveQ;
+
+// Event queue: decoded messages that aren't DRIVE or HEARTBEAT.
+// Consumer: events_task. Bounded at 8; drops when full.
+extern QueueHandle_t g_eventQ;
+
+// Fills the telemetry struct from current system state.
+// Implemented in main.cpp. Called by commsTask at 10 Hz.
 void comms_fill_telemetry(robot::proto::Telemetry& t);

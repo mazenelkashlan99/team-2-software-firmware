@@ -1,4 +1,6 @@
 #pragma once
+// ---- Network identity ----------------------------------------------
+#define ROBOT_SID "robot-01"
 
 // =====================================================================
 // config.h — the single hardware interface file.
