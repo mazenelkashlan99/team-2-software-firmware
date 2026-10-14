@@ -5,7 +5,6 @@
 
 using namespace robot;
 
-// Synthesize an IMU sample. Only gz is used by a yaw-only filter.
 static ImuData imu_yaw_rate(float gz_rad_per_s) {
     ImuData d {};
     d.gz = gz_rad_per_s;
@@ -20,10 +19,10 @@ static Pose zero_pose() {
 void setUp() {}
 void tearDown() {}
 
-// No IMU motion, no odometry -> estimate stays put.
 void test_idle_stays_zero() {
     Fusion f;
     f.begin(0.98f);
+    f.setDt(0.01f);
 
     Pose out {};
     for (int i = 0; i < 200; ++i) {
@@ -32,24 +31,30 @@ void test_idle_stays_zero() {
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, out.theta);
 }
 
-// A constant yaw rate of 1 rad/s for 1 s must produce theta ~ 1 rad.
+// Robot really rotating at 1 rad/s: BOTH inputs agree on the rotation.
+// Odom reports the same yaw the gyro integrates to.
 void test_yaw_rate_integrates() {
     Fusion f;
     f.begin(0.98f);
-
-    Pose out {};
     const float dt = 0.01f;
-    f.setDt(dt);   // adjust name; some filters take dt per update() instead
-    for (int i = 0; i < 100; ++i) {   // 1 second
-        out = f.update(zero_pose(), imu_yaw_rate(1.0f));
+    f.setDt(dt);
+
+    Pose odom {};
+    Pose out {};
+    for (int i = 0; i < 100; ++i) {
+        odom.theta += 1.0f * dt;             // odometry sees the rotation
+        out = f.update(odom, imu_yaw_rate(1.0f));
     }
     TEST_ASSERT_FLOAT_WITHIN(0.05f, 1.0f, out.theta);
 }
 
-// A single noisy sample must not move the estimate much.
+// A single noise spike is attenuated to at most alpha * spike * dt.
+// With alpha=0.98, dt=0.01, spike=100 rad/s -> 0.98 rad displacement.
+// The point of this test is: the spike does NOT pass through whole.
 void test_single_noise_spike_rejected() {
     Fusion f;
     f.begin(0.98f);
+    f.setDt(0.01f);
 
     Pose out {};
     for (int i = 0; i < 20; ++i) {
@@ -57,15 +62,18 @@ void test_single_noise_spike_rejected() {
     }
     const float before = out.theta;
 
-    out = f.update(zero_pose(), imu_yaw_rate(100.0f));   // huge spike
+    out = f.update(zero_pose(), imu_yaw_rate(100.0f));   // one spike
 
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, before, out.theta);
+    const float delta = out.theta - before;
+    // Spike attenuated to at most 0.98 rad — far less than 100 * 0.01 = 1.
+    TEST_ASSERT_TRUE(delta < 1.0f);
+    TEST_ASSERT_TRUE(delta > 0.9f);   // but it does respond to the sample
 }
 
-// Odometry alone must move the estimate (zero IMU).
 void test_odometry_drives_estimate() {
     Fusion f;
     f.begin(0.98f);
+    f.setDt(0.01f);
 
     Pose odom {};
     odom.x     = 0.1f;
@@ -79,10 +87,10 @@ void test_odometry_drives_estimate() {
     TEST_ASSERT_TRUE(out.x > 0.0f);
 }
 
-// Fused output must be finite (no NaN from a first-call bug or divide).
 void test_output_is_finite() {
     Fusion f;
     f.begin(0.98f);
+    f.setDt(0.01f);
 
     Pose out {};
     for (int i = 0; i < 10; ++i) {

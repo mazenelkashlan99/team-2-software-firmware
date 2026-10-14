@@ -1,6 +1,8 @@
 #include <unity.h>
 #include <cmath>
 #include "Odometry.h"
+#include "robot_interfaces.h"     // ADDED
+using namespace robot;            // ADDED
 
 // TODO: confirm wheelbase and encoder calibration match your config.
 static constexpr float TRACK_W = 0.15f;   // meters

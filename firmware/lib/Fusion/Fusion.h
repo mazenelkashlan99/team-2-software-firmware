@@ -1,6 +1,6 @@
 #pragma once
 #include "robot_interfaces.h"
-#include "Imu.h"
+#include "ImuData.h"      // was "Imu.h" — now points to include/ImuData.h
 
 // Complementary filter. Fast yaw from the gyro, drift-corrected by
 // odometry-derived yaw. x/y pass straight through from odometry.
@@ -9,8 +9,8 @@
 // timestamp, prefer a `setDt()` updated from consecutive tUs deltas.
 class Fusion {
 public:
-    void begin(float alpha);   // 0 < alpha < 1, weight on the gyro estimate
-    void setDt(float dt);      // fallback if caller doesn't pass dt
+    void begin(float alpha);
+    void setDt(float dt);
 
     // Returns a fused pose. odom.x/y are trusted as-is; only theta is
     // filtered. Set odom.valid to false to have fusion pass through.

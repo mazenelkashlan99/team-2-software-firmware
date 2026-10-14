@@ -1,11 +1,7 @@
 #include <unity.h>
 #include "PID.h"
 
-// Helpers ------------------------------------------------------------
 
-static void settle(PID& p, float sp, float meas, float dt, int n) {
-    for (int i = 0; i < n; ++i) p.compute(sp, meas, dt);
-}
 
 // setUp / tearDown are required by Unity.
 
