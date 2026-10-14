@@ -1,5 +1,5 @@
 #pragma once
-#define WIFI_SSID "your-network-name"
-#define WIFI_PASS "your-password"
-#define MQTT_HOST "192.168.1.100"
+#define WIFI_SSID "Mazen Elkashlan"
+#define WIFI_PASS "mizo2005"
+#define MQTT_HOST "172.20.10.3"
 #define MQTT_PORT 1883
