@@ -2,15 +2,22 @@
 #include "comms_task.h"
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <atomic>
 #include <string.h>
 
 #include "secrets.h"     // WIFI_SSID, WIFI_PASS, MQTT_HOST, MQTT_PORT  (git-ignored)
+#include "config.h"
 #include "Topics.h"      // all topic strings
 #include "Protocol.h"
 #include "ModeManager.h"
+
+#if defined(OTA_PASSWORD)
+#define OTA_STRINGIFY_INNER(value) #value
+#define OTA_STRINGIFY(value) OTA_STRINGIFY_INNER(value)
+#endif
 
 using namespace robot;
 
@@ -36,6 +43,7 @@ std::atomic<bool> s_linkOk{false};
 
 uint32_t s_lastHbMs     = 0;
 bool     s_haveHb       = false;
+bool     s_otaStarted   = false;
 uint32_t s_lastWifiTry  = 0;
 uint32_t s_lastMqttTry  = 0;
 uint32_t s_lastTelemMs  = 0;
@@ -69,15 +77,26 @@ void pub(const char* topicName, const char* buf, size_t n, bool retained = false
 void onMqttMessage(char* topicName, uint8_t* payload, unsigned int len) {
     // 1. E-stop first: no decode, no queue. Hard override.
     if (strcmp(topicName, topic::CMD_ESTOP) == 0) {
-        g_modeManager.forceEstop();
+        g_modeManager.triggerEstop(EstopReason::CONSOLE);
         return;
     }
 
     // 2. Everything else: decode, then dispatch.
     proto::Message msg;
+    char jsonError[48] = {0};
     const proto::DecodeError err =
-        proto::decode(topicName, (const char*)payload, len, msg);
+        proto::decode(topicName, (const char*)payload, len, msg,
+                      jsonError, sizeof(jsonError));
     if (err != proto::DecodeError::OK) {
+        if (err == proto::DecodeError::BAD_JSON) {
+            Serial.printf("[mqtt] BAD_JSON topic=%s error=%s payload=",
+                          topicName, jsonError[0] ? jsonError : "unknown");
+            Serial.write(payload, len);
+            Serial.println();
+        } else {
+            Serial.printf("[mqtt] rejected topic=%s reason=%s\n",
+                          topicName, proto::errorName(err));
+        }
         strncpy(s_rejTopic, topicName, sizeof(s_rejTopic) - 1);
         s_rejReason  = err;
         s_rejPending = true;
@@ -91,24 +110,12 @@ void onMqttMessage(char* topicName, uint8_t* payload, unsigned int len) {
         break;
 
     case proto::MsgType::DRIVE: {
-        Command c;
-        c.v = msg.thr;    // normalized [-1, 1]; scaled in control_task
-        c.w = msg.turn;
+        DriveCmd c;
+        c.thr = msg.thr;  // normalized [-1, 1]; scaled in control_task
+        c.turn = msg.turn;
         xQueueOverwrite(g_driveQ, &c);   // keep only the newest
         break;
     }
-
-    case proto::MsgType::ESTOP_RESET:
-        // Only leave ESTOP if the link is alive.
-        if (s_haveHb && (millis() - s_lastHbMs) < LINK_TIMEOUT_MS) {
-            g_modeManager.request(Mode::MANUAL);
-        }
-        break;
-
-    case proto::MsgType::MODE:
-        // Never allow MODE to set ESTOP — that's the ESTOP topic's job.
-        g_modeManager.request(msg.mode);
-        break;
 
     case proto::MsgType::PING:
         s_pingId      = msg.pingId;
@@ -131,6 +138,23 @@ void ensureWifi(uint32_t now) {
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
+void ensureOta() {
+    if (s_otaStarted || WiFi.status() != WL_CONNECTED) return;
+
+#if defined(OTA_PASSWORD)
+    ArduinoOTA.setPassword(OTA_STRINGIFY(OTA_PASSWORD));
+#else
+    // Keep OTA disabled unless an authentication password is configured.
+    return;
+#endif
+
+    ArduinoOTA.setHostname(ROBOT_SID);
+    ArduinoOTA.begin();
+    s_otaStarted = true;
+    Serial.printf("OTA ready at %s.local (%s)\n", ROBOT_SID,
+                  WiFi.localIP().toString().c_str());
+}
+
 void ensureMqtt(uint32_t now) {
     if (WiFi.status() != WL_CONNECTED || s_client.connected()) return;
     if (now - s_lastMqttTry < MQTT_RETRY_MS) return;
@@ -141,15 +165,25 @@ void ensureMqtt(uint32_t now) {
                           topic::STATUS_ONLINE, 1, true, topic::PAYLOAD_OFFLINE))
         return;
 
-    s_client.subscribe(topic::SUB_CMD, 1);
-    s_client.subscribe(topic::SUB_CV, 1);
-    s_client.subscribe(topic::SUB_HB_CONSOLE, 0);
+    s_client.subscribe(topic::CMD_DRIVE, 1);
+    s_client.subscribe(topic::CMD_MODE, 1);
+    s_client.subscribe(topic::CMD_ESTOP, 1);
+    s_client.subscribe(topic::CMD_ESTOP_RESET, 1);
+    s_client.subscribe(topic::CMD_START, 1);
+    s_client.subscribe(topic::CMD_MISSION, 1);
+    s_client.subscribe(topic::CMD_GOTO, 1);
+    s_client.subscribe(topic::CMD_ARM, 1);
+    s_client.subscribe(topic::CMD_POSE_SET, 1);
+    s_client.subscribe(topic::CMD_PING, 0);
+    s_client.subscribe(topic::CV_QR, 1);
+    s_client.subscribe(topic::CV_COLOR, 1);
+    s_client.subscribe(topic::HB_CONSOLE, 0);
 
     s_client.publish(topic::STATUS_ONLINE, topic::PAYLOAD_ONLINE, true);
 
     // Announce current mode right away so the console knows our state.
     char buf[128];
-    pub(topic::STATE_MODE, buf,
+    pub(topic::MODE_STATE, buf,
         proto::encodeModeState(buf, sizeof(buf), nextEnv(), millis(),
                                g_modeManager.current()),
         true);
@@ -180,6 +214,8 @@ void commsTask(void*) {
         const uint32_t now = millis();
 
         ensureWifi(now);
+        ensureOta();
+        if (s_otaStarted) ArduinoOTA.handle();
         ensureMqtt(now);
         if (s_client.connected()) s_client.loop();
 
@@ -188,7 +224,7 @@ void commsTask(void*) {
                      && s_client.connected()
                      && (now - s_lastHbMs) < LINK_TIMEOUT_MS;
         if (s_linkOk.load() && !ok) {
-            g_modeManager.forceEstop();
+            g_modeManager.triggerEstop(EstopReason::WATCHDOG);
         }
         s_linkOk.store(ok);
 
@@ -198,12 +234,12 @@ void commsTask(void*) {
             // Replies the callback could not send itself.
             if (s_pingPending) {
                 s_pingPending = false;
-                pub(topic::STATE_PONG, buf,
+                pub(topic::PONG, buf,
                     proto::encodePong(buf, sizeof(buf), nextEnv(), now, s_pingId));
             }
             if (s_rejPending) {
                 s_rejPending = false;
-                pub(topic::STATUS_EVENT, buf,
+                pub(topic::EVENT, buf,
                     proto::encodeReject(buf, sizeof(buf), nextEnv(), now,
                                         s_rejTopic, s_rejReason));
             }
@@ -215,7 +251,7 @@ void commsTask(void*) {
                 comms_fill_telemetry(t);
                 t.mode   = g_modeManager.current();
                 t.linkOk = ok;
-                pub(topic::STATE_TELEMETRY, buf,
+                pub(topic::TELEM, buf,
                     proto::encodeTelemetry(buf, sizeof(buf), nextEnv(), now, t));
             }
 

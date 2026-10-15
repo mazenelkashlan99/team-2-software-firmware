@@ -256,7 +256,7 @@ bool parseQrString(const char* s, float& x, float& y) {
 }
 
 DecodeError decode(const char* topicName, const char* payload, size_t len,
-                   Message& out) {
+                   Message& out, char* jsonError, size_t jsonErrorCapacity) {
     out = Message();
     MsgType t = typeFromTopic(topicName);
     if (t == MsgType::UNKNOWN) return DecodeError::UNKNOWN_TOPIC;
@@ -265,11 +265,24 @@ DecodeError decode(const char* topicName, const char* payload, size_t len,
 
     out.type = t;
 
-    if (payload == nullptr || len == 0 || len > MAX_PAYLOAD)
+    if (payload == nullptr || len == 0 || len > MAX_PAYLOAD) {
+        if (jsonError && jsonErrorCapacity) {
+            strncpy(jsonError, "empty payload or payload exceeds maximum size",
+                    jsonErrorCapacity - 1);
+            jsonError[jsonErrorCapacity - 1] = '\0';
+        }
         return DecodeError::BAD_JSON;
+    }
 
     JsonDocument doc;
-    if (deserializeJson(doc, payload, len)) return DecodeError::BAD_JSON;
+    const DeserializationError parseError = deserializeJson(doc, payload, len);
+    if (parseError) {
+        if (jsonError && jsonErrorCapacity) {
+            strncpy(jsonError, parseError.c_str(), jsonErrorCapacity - 1);
+            jsonError[jsonErrorCapacity - 1] = '\0';
+        }
+        return DecodeError::BAD_JSON;
+    }
     JsonObjectConst root = doc.as<JsonObjectConst>();
     if (root.isNull()) return DecodeError::BAD_JSON;
 

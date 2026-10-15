@@ -10,11 +10,14 @@ TOPIC_SUB_HB    = "robot/heartbeat/console"
 TOPIC_SUB_MODE  = "robot/cmd/mode"
 TOPIC_SUB_ESTOP = "robot/cmd/estop"
 TOPIC_SUB_RESET = "robot/cmd/estop_reset"
-TOPIC_TELEM     = "robot/telem"
-TOPIC_MODE      = "robot/mode_state"
-TOPIC_HB_ROBOT  = "robot/heartbeat/robot"
-TOPIC_STATUS    = "robot/status"
-TOPIC_DIAG      = "robot/diagnostics"
+TOPIC_SUB_ARM   = "robot/cmd/arm"
+TOPIC_SUB_PING  = "robot/cmd/ping"
+TOPIC_TELEM     = "robot/state/telemetry"
+TOPIC_MODE      = "robot/state/mode"
+TOPIC_HB_ROBOT  = "robot/hb/robot"
+TOPIC_STATUS    = "robot/status/online"
+TOPIC_PONG      = "robot/state/pong"
+TOPIC_LOG       = "robot/log"
 
 SID = "robot-sim-ahmed"
 HEARTBEAT_TIMEOUT_MS = 500
@@ -36,7 +39,7 @@ class RobotSim:
         self.wheelL = 0.0
         self.wheelR = 0.0
         self.start_time = int(time.time())
-        self.client = mqtt.Client(client_id=SID)
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=SID)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.will_set(TOPIC_STATUS, "offline", qos=1, retain=True)
@@ -51,22 +54,31 @@ class RobotSim:
             env.update(extra)
         self.client.publish(topic, json.dumps(env))
 
-    def _on_connect(self, client, userdata, flags, rc):
-        print(f"[sim] connected rc={rc}")
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        print(f"[sim] connected rc={reason_code}")
         client.subscribe(TOPIC_SUB_CMD, qos=1)
         client.subscribe(TOPIC_SUB_HB, qos=0)
         client.subscribe(TOPIC_SUB_MODE, qos=1)
         client.subscribe(TOPIC_SUB_ESTOP, qos=1)
         client.subscribe(TOPIC_SUB_RESET, qos=1)
+        client.subscribe(TOPIC_SUB_ARM, qos=1)
+        client.subscribe(TOPIC_SUB_PING, qos=0)
         client.publish(TOPIC_HB_ROBOT, json.dumps(self._envelope()))
         client.publish(TOPIC_STATUS, "online", qos=1, retain=True)
 
     def _on_message(self, client, userdata, msg):
         topic = msg.topic
+        # A retained drive command may be stale. Never replay motion on startup.
+        if topic == TOPIC_SUB_CMD and msg.retain:
+            print("[sim] ignored retained drive command")
+            return
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
         except Exception:
-            print(f"[sim] bad json on {topic}")
+            print(f"[sim] bad json on {topic}: {msg.payload!r}")
+            return
+        if not isinstance(payload, dict):
+            print(f"[sim] expected JSON object on {topic}: {payload!r}")
             return
         if payload.get("ver") != 1:
             print(f"[sim] bad version on {topic}: {payload.get('ver')}")
@@ -81,6 +93,16 @@ class RobotSim:
             self.target_w = turn * MAX_W_RADPS
             self.last_cmd_ms = int(time.time() * 1000)
             print(f"[sim] DRIVE thr={thr:+.2f} turn={turn:+.2f}")
+        elif topic == TOPIC_SUB_ARM:
+            action = payload.get("action")
+            if action in ("PICK", "DROP", "STOW"):
+                print(f"[sim] ARM action={action}")
+            else:
+                print(f"[sim] bad arm action: {action!r}")
+        elif topic == TOPIC_SUB_PING:
+            ping_id = payload.get("ping_id")
+            self._publish(TOPIC_PONG, {"ping_id": ping_id})
+            print(f"[sim] PING id={ping_id}")
         elif topic == TOPIC_SUB_MODE:
             new_mode = payload.get("mode", "MANUAL")
             if new_mode in ("MANUAL", "SEMI", "AUTO"):
@@ -138,13 +160,9 @@ class RobotSim:
                     self.client.publish(TOPIC_HB_ROBOT, json.dumps(self._envelope()))
                 if now - last_diag >= 1000:
                     last_diag = now
-                    self._publish(TOPIC_DIAG, {
-                        "uptime_s": int(time.time()) - self.start_time,
-                        "heap_free": 234567,
-                        "wifi_rssi": -42,
-                        "loop_us": 982,
-                        "batt_v": 7.4,
-                        "batt_pct": 82,
+                    self._publish(TOPIC_LOG, {
+                        "lvl": "INFO",
+                        "msg": f"sim uptime={int(time.time()) - self.start_time}s",
                     })
                 time.sleep(0.01)
         except KeyboardInterrupt:

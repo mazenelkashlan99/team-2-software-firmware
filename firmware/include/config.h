@@ -64,10 +64,13 @@
 
 // ---- Arm servos (LEDC, 50 Hz PWM) -----------------------------------
 // Standard hobby servos want a 50 Hz signal with a 1–2 ms pulse.
-// Two servos: one at the shoulder joint, one at the gripper.
-#define PIN_SHOULDER    18      // Shoulder servo signal — to servo signal wire
+// Wire each signal lead to its listed GPIO; power servos externally and
+// connect the supply ground to ESP32 GND.
+#define PIN_SHOULDER    18      // Shoulder/lift servo signal GPIO
 #define CH_SHOULDER     4       // LEDC channel for the shoulder servo
-#define PIN_GRIPPER     19      // Gripper servo signal — to servo signal wire
+#define PIN_REACH       23      // Reach servo signal GPIO
+#define CH_REACH        6       // LEDC channel for reach servo
+#define PIN_GRIPPER     19      // Gripper servo signal GPIO
 #define CH_GRIPPER      5       // LEDC channel for the gripper servo
 
 
@@ -79,6 +82,7 @@
 #define PIN_I2C_SCL     22      // I2C clock — to MPU6050 SCL
 
 
+
 // ---- Control loop timing --------------------------------------------
 // Fixed rates for the FreeRTOS tasks. Control and pose run at the same
 // rate so they stay in lockstep; autonomy is slower because it only
@@ -88,6 +92,9 @@
 #define POSE_RATE_HZ    100     // Pose estimator update rate (Hz)
 #define AUTONOMY_RATE_HZ 20     // Mission state machine rate (Hz)
 #define LOG_RATE_HZ     10      // Log flush rate (Hz)
+#define CONTROL_PERIOD_MS (1000 / CONTROL_RATE_HZ)
+#define POSE_PERIOD_MS    (1000 / POSE_RATE_HZ)
+#define AUTONOMY_PERIOD_MS (1000 / AUTONOMY_RATE_HZ)
 
 
 // ---- Safety limits --------------------------------------------------
@@ -97,6 +104,8 @@
 #define MAX_W_RADPS     1.0f    // Max turn rate (rad/s) — PLACEHOLDER
 #define ACCEL_V_MPS2    0.5f    // Max linear acceleration (m/s²) — ramp limit
 #define ACCEL_W_RADPS2  2.0f    // Max angular acceleration (rad/s²) — ramp limit
+#define ACCEL_V         ACCEL_V_MPS2
+#define ACCEL_W         ACCEL_W_RADPS2
 #define CMD_TIMEOUT_S   0.5f    // Stop if no drive command for this long (s)
 
 
@@ -109,6 +118,13 @@
 #define KD              0.0f    // Derivative gain
 #define KFF             0.9f    // Feed-forward gain (power per unit setpoint)
 #define SPEED_FILTER_ALPHA 0.3f // Speed low-pass: 1 = none, smaller = smoother
+#define PID_KP          KP
+#define PID_KI          KI
+#define PID_KD          KD
+#define PID_KFF         KFF
+#define SPEED_FILTER    SPEED_FILTER_ALPHA
+#define ENC_L_INVERTED  false
+#define ENC_R_INVERTED  false
 
 
 // ---- Motor behaviour ------------------------------------------------

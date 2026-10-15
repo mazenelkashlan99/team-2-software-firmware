@@ -19,15 +19,11 @@ GoTo     s_goto;
 QueueHandle_t s_qrQ      = nullptr;
 QueueHandle_t s_missionQ = nullptr;
 
-void postMode(robot::Mode m) {
-    g_modeManager.request(m);   // adjust to your ModeManager API
-}
-
 }  // namespace
 
 void autonomyInit() {
     s_autonomy.begin();
-    s_goto.begin();
+    s_goto.begin(1.0f, 2.0f, MAX_V_MPS, MAX_W_RADPS, 0.05f);
     s_qrQ      = xQueueCreate(1, sizeof(robot::QrResult));
     s_missionQ = xQueueCreate(1, sizeof(robot::MissionConfig));
 }
@@ -69,35 +65,32 @@ void autonomyTask(void*) {
 
         // Step the state machine. Output is a small action + args —
         // policy lives in Autonomy, side effects live here.
-        const AutonomyStep step =
+        const Autonomy::Step step =
             s_autonomy.step(pose, arm, qr, mission);
 
         switch (step.action) {
-            case AutoAction::DriveTo: {
-                const VelCmd v = s_goto.compute(pose, step.target, AUTONOMY_DT);
+            case Autonomy::Step::Action::DriveTo: {
+                const GoTo::Vel v = s_goto.compute(pose, step.targetX, step.targetY,
+                                                   1.0f / AUTONOMY_RATE_HZ);
                 controlPostAutoCommand(v.v, v.w);
                 break;
             }
-            case AutoAction::Stop:
+            case Autonomy::Step::Action::Stop:
                 controlPostAutoCommand(0.0f, 0.0f);
                 break;
 
-            case AutoAction::ArmPick:
-                armRequestPick();
+            case Autonomy::Step::Action::ArmPick:
+                armPost(robot::ArmCmd::PICK);
                 break;
-            case AutoAction::ArmDrop:
-                armRequestDrop();
+            case Autonomy::Step::Action::ArmDrop:
+                armPost(robot::ArmCmd::DROP);
                 break;
-            case AutoAction::ArmStow:
-                armRequestStow();
-                break;
-
-            case AutoAction::RequestMode:
-                postMode(step.nextMode);
+            case Autonomy::Step::Action::ArmStow:
+                armPost(robot::ArmCmd::STOW);
                 break;
 
-            case AutoAction::Idle:
-            case AutoAction::Done:
+            case Autonomy::Step::Action::Idle:
+            case Autonomy::Step::Action::Done:
                 break;
         }
     }

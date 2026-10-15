@@ -12,10 +12,12 @@ TOPIC_CMD_DRIVE = "robot/cmd/drive"
 TOPIC_CMD_MODE  = "robot/cmd/mode"
 TOPIC_CMD_ESTOP = "robot/cmd/estop"
 TOPIC_CMD_RESET = "robot/cmd/estop_reset"
+TOPIC_CMD_ARM   = "robot/cmd/arm"
+TOPIC_CMD_PING  = "robot/cmd/ping"
 TOPIC_HB_CONSOLE = "robot/heartbeat/console"
-TOPIC_TELEM     = "robot/telem"
-TOPIC_MODE      = "robot/mode_state"
-TOPIC_EVENT     = "robot/event"
+TOPIC_TELEM     = "robot/state/telemetry"
+TOPIC_MODE      = "robot/state/mode"
+TOPIC_EVENT     = "robot/status/event"
 
 
 class Console:
@@ -49,7 +51,7 @@ class Console:
 
     def _envelope(self, extra=None):
         self.seq += 1
-        env = {"ver": 1, "sid": self.sid, "seq": self.seq, "t": int(time.time() * 1000)}
+        env = {"ver": 1, "sid": self.sid, "seq": self.seq}
         if extra:
             env.update(extra)
         return json.dumps(env)
@@ -63,7 +65,11 @@ class Console:
 
         def hb():
             while self.running:
-                self.client.publish(TOPIC_HB_CONSOLE, self._envelope(), qos=0)
+                self.client.publish(
+                    TOPIC_HB_CONSOLE,
+                    self._envelope({"ts": int(time.time() * 1000)}),
+                    qos=0,
+                )
                 time.sleep(0.5)
         threading.Thread(target=hb, daemon=True).start()
 
@@ -82,7 +88,7 @@ def main():
 
     c = Console(args.host, args.port, args.sid)
     c.start()
-    print("commands: w <thr> <turn> | m <MODE> | x | r | q")
+    print("commands: w <thr> <turn> | a <PICK|DROP|STOW> | p <id> | m <MODE> | x | r | q")
 
     try:
         for line in sys.stdin:
@@ -99,6 +105,16 @@ def main():
             elif cmd == "m" and len(parts) == 2:
                 c.publish(TOPIC_CMD_MODE, {"mode": parts[1].upper()})
                 print(f"  -> sent mode {parts[1].upper()}")
+            elif cmd == "a" and len(parts) == 2:
+                action = parts[1].upper()
+                if action not in ("PICK", "DROP", "STOW"):
+                    print("  arm action must be PICK, DROP, or STOW")
+                    continue
+                c.publish(TOPIC_CMD_ARM, {"action": action})
+                print(f"  -> sent arm {action}")
+            elif cmd == "p" and len(parts) == 2:
+                c.publish(TOPIC_CMD_PING, {"ping_id": int(parts[1])})
+                print(f"  -> sent ping {parts[1]}")
             elif cmd == "x":
                 c.publish(TOPIC_CMD_ESTOP)
                 print("  -> sent ESTOP")
@@ -106,7 +122,7 @@ def main():
                 c.publish(TOPIC_CMD_RESET)
                 print("  -> sent estop_reset")
             else:
-                print("  usage: w <thr> <turn> | m <MODE> | x | r | q")
+                print("  usage: w <thr> <turn> | a <PICK|DROP|STOW> | p <id> | m <MODE> | x | r | q")
     except KeyboardInterrupt:
         pass
     finally:

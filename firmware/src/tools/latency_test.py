@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Measure round-trip latency console -> broker -> robot -> broker -> console.
 
-Publishes robot/cmd_ping with a unique ping_id at a set rate, listens
-for robot/pong, and reports the distribution of round-trip times.
+Publishes robot/cmd/ping with a unique ping_id at a set rate, listens
+for robot/state/pong, and reports the distribution of round-trip times.
 
 Usage:
     python latency_test.py --host localhost --count 100 --rate 10
@@ -15,8 +15,8 @@ import time
 import paho.mqtt.client as mqtt
 
 
-TOPIC_PING = "robot/cmd_ping"
-TOPIC_PONG = "robot/pong"
+TOPIC_PING = "robot/cmd/ping"
+TOPIC_PONG = "robot/state/pong"
 
 
 def main():
@@ -77,7 +77,7 @@ def main():
 
     print()
     if not rtts:
-        print("no pongs received; check firmware is publishing robot/pong")
+        print("no pongs received; check firmware is publishing robot/state/pong")
         return
     rtts.sort()
     print(f"received: {len(rtts)} / {args.count}")

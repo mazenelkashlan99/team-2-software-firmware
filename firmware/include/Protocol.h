@@ -67,7 +67,8 @@ const char* modeName(robot::Mode m);
 const char* armStatusName(robot::ArmStatus s);
 bool parseQrString(const char* s, float& x, float& y);
 DecodeError decode(const char* topicName, const char* payload, size_t len,
-                   Message& out);
+                   Message& out, char* jsonError = nullptr,
+                   size_t jsonErrorCapacity = 0);
 
 size_t encodeTelemetry(char* buf, size_t cap, const Envelope& env,
                        TimeMs t, const Telemetry& tel);

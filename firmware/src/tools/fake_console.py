@@ -3,7 +3,7 @@
 
 A replacement for the real console while the software team's GUI isn't
 ready. Publishes heartbeat at 2 Hz, lets you send drive commands from
-stdin, and prints whatever arrives on robot/telem and robot/mode_state.
+stdin, and prints whatever arrives on robot/state/telemetry and robot/state/mode.
 
 Commands from stdin:
     w 0.3 0        drive v=0.3, w=0
@@ -29,10 +29,12 @@ TOPIC_CMD_DRIVE      = "robot/cmd/drive"
 TOPIC_CMD_MODE       = "robot/cmd/mode"
 TOPIC_CMD_ESTOP      = "robot/cmd/estop"
 TOPIC_CMD_ESTOP_RESET = "robot/cmd/estop_reset"
+TOPIC_CMD_ARM        = "robot/cmd/arm"
+TOPIC_CMD_PING       = "robot/cmd/ping"
 TOPIC_HB_CONSOLE     = "robot/heartbeat/console"
-TOPIC_TELEM          = "robot/telem"
-TOPIC_MODE_STATE     = "robot/mode_state"
-TOPIC_EVENT          = "robot/event"
+TOPIC_TELEM          = "robot/state/telemetry"
+TOPIC_MODE_STATE     = "robot/state/mode"
+TOPIC_EVENT          = "robot/status/event"
 
 
 class Console:
@@ -59,11 +61,11 @@ class Console:
             payload = msg.payload
         print(f"[{msg.topic}] {payload}")
 
-    def _envelope(self, extra: dict) -> str:
+    def _envelope(self, extra: dict = None) -> str:
         self.seq += 1
-        msg = {"ver": 1, "sid": self.sid, "seq": self.seq,
-               "t": int(time.time() * 1000)}
-        msg.update(extra)
+        msg = {"ver": 1, "sid": self.sid, "seq": self.seq}
+        if extra:
+            msg.update(extra)
         return json.dumps(msg)
 
     def publish(self, topic, extra):
@@ -77,7 +79,7 @@ class Console:
         def hb():
             while self.running:
                 self.client.publish(TOPIC_HB_CONSOLE,
-                                    self._envelope({}), qos=0)
+                                    self._envelope({"ts": int(time.time() * 1000)}), qos=0)
                 time.sleep(0.5)
         threading.Thread(target=hb, daemon=True).start()
 
@@ -96,7 +98,7 @@ def main():
 
     c = Console(args.host, args.port, args.sid)
     c.start()
-    print("commands: w <v> <w> | m <MODE> | x | r | q")
+    print("commands: w <v> <w> | a <PICK|DROP|STOW> | p <id> | m <MODE> | x | r | q")
 
     try:
         for line in sys.stdin:
@@ -112,6 +114,14 @@ def main():
                                             "turn": float(parts[2])})
             elif cmd == "m" and len(parts) == 2:
                 c.publish(TOPIC_CMD_MODE, {"mode": parts[1].upper()})
+            elif cmd == "a" and len(parts) == 2:
+                action = parts[1].upper()
+                if action not in ("PICK", "DROP", "STOW"):
+                    print("arm action must be PICK, DROP, or STOW")
+                    continue
+                c.publish(TOPIC_CMD_ARM, {"action": action})
+            elif cmd == "p" and len(parts) == 2:
+                c.publish(TOPIC_CMD_PING, {"ping_id": int(parts[1])})
             elif cmd == "x":
                 c.publish(TOPIC_CMD_ESTOP, {})
             elif cmd == "r":

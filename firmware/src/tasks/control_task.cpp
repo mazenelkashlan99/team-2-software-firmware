@@ -58,6 +58,9 @@ void controlPostAutoCommand(float v, float w) {
     xQueueOverwrite(s_autoQ, &c);     // only the newest matters
 }
 
+float wheelDistanceDeltaLeft()  { return wheelL.getDistanceDelta(); }
+float wheelDistanceDeltaRight() { return wheelR.getDistanceDelta(); }
+
 WheelState controlGetWheelState() {
     WheelState s;
     portENTER_CRITICAL(&s_mux);
