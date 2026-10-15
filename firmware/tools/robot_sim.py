@@ -16,8 +16,9 @@ TOPIC_TELEM     = "robot/telem"
 TOPIC_MODE      = "robot/mode_state"
 TOPIC_HB_ROBOT  = "robot/heartbeat/robot"
 TOPIC_EVENT     = "robot/event"
+TOPIC_STATUS    = "robot/status"
 
-SID             = "robot-sim"
+SID                  = "robot-sim"
 HEARTBEAT_TIMEOUT_MS = 500
 CMD_TIMEOUT_MS       = 500
 MAX_V_MPS            = 0.3
@@ -36,9 +37,12 @@ class RobotSim:
         self.target_w = 0.0
         self.wheelL = 0.0
         self.wheelR = 0.0
+        self.start_time = int(time.time())
         self.client = mqtt.Client(client_id=SID)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
+        # Last Will: broker publishes "offline" if we die without saying goodbye
+        self.client.will_set(TOPIC_STATUS, "offline", qos=1, retain=True)
 
     def _envelope(self):
         self.seq += 1
@@ -58,6 +62,7 @@ class RobotSim:
         client.subscribe(TOPIC_SUB_ESTOP, qos=1)
         client.subscribe(TOPIC_SUB_RESET, qos=1)
         client.publish(TOPIC_HB_ROBOT, json.dumps(self._envelope()))
+        client.publish(TOPIC_STATUS, "online", qos=1, retain=True)
 
     def _on_message(self, client, userdata, msg):
         topic = msg.topic
@@ -110,22 +115,20 @@ class RobotSim:
         self.client.loop_start()
         last_telem = 0
         last_hb = 0
+        last_diag = 0
         try:
             while True:
                 now = int(time.time() * 1000)
 
-                # Command timeout -> zero targets
                 if now - self.last_cmd_ms > CMD_TIMEOUT_MS:
                     self.target_v = 0.0
                     self.target_w = 0.0
 
-                # Heartbeat timeout -> ESTOP
                 if now - self.last_hb_ms > HEARTBEAT_TIMEOUT_MS and self.mode != "ESTOP":
                     self.mode = "ESTOP"
                     self._publish(TOPIC_MODE, {"mode": "ESTOP"})
                     print("[sim] watchdog -> ESTOP")
 
-                # Fake wheel speed from targets (simple first-order response)
                 self.wheelL += (self.target_v - self.wheelL) * 0.2
                 self.wheelR += (self.target_v - self.wheelR) * 0.2
 
@@ -147,10 +150,23 @@ class RobotSim:
                     last_hb = now
                     self.client.publish(TOPIC_HB_ROBOT, json.dumps(self._envelope()))
 
+                if now - last_diag >= 1000:
+                    last_diag = now
+                    self._publish(TOPIC_DIAG := "robot/diagnostics", {
+                        "uptime_s": int(time.time()) - self.start_time,
+                        "heap_free": 234567,
+                        "wifi_rssi": -42,
+                        "loop_us": 982,
+                        "batt_v": 7.4,
+                        "batt_pct": 82,
+                    })
+
                 time.sleep(0.01)
         except KeyboardInterrupt:
             pass
         finally:
+            self.client.publish(TOPIC_STATUS, "offline", qos=1, retain=True)
+            time.sleep(0.2)   # give the broker a moment to receive it
             self.client.loop_stop()
             self.client.disconnect()
 
