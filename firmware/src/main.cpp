@@ -16,6 +16,8 @@ void comms_fill_telemetry(robot::proto::Telemetry& t) {
     const WheelState w = controlGetWheelState();
     t.pose.v = (w.speedL + w.speedR) * 0.5f;
     t.pose.w = (w.speedR - w.speedL) / TRACK_WIDTH_M;
+    t.speedL = w.speedL;      // ADD
+    t.speedR = w.speedR;      // ADD
     t.pose.valid = false;            // TODO: x, y, theta, valid from B's pose task
     t.arm       = armGetStatus();
     t.autoState = "IDLE";            // TODO: from C's autonomy
