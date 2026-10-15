@@ -1,3 +1,3 @@
-// events_task.h
 #pragma once
-void eventsTask(void*);
+void eventsInit();
+void eventsTask(void* arg);

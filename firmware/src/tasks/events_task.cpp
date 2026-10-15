@@ -1,6 +1,5 @@
 // events_task.cpp
 #include "events_task.h"
-#include <Arduino.h>
 #include <math.h>
 #include "comms_task.h"
 #include "control_task.h"

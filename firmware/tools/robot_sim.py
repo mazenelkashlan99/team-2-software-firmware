@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Fake ESP32: speaks the robot MQTT protocol without hardware."""
+﻿#!/usr/bin/env python3
 import argparse
 import json
 import time
@@ -11,14 +10,13 @@ TOPIC_SUB_HB    = "robot/heartbeat/console"
 TOPIC_SUB_MODE  = "robot/cmd/mode"
 TOPIC_SUB_ESTOP = "robot/cmd/estop"
 TOPIC_SUB_RESET = "robot/cmd/estop_reset"
-
 TOPIC_TELEM     = "robot/telem"
 TOPIC_MODE      = "robot/mode_state"
 TOPIC_HB_ROBOT  = "robot/heartbeat/robot"
-TOPIC_EVENT     = "robot/event"
 TOPIC_STATUS    = "robot/status"
+TOPIC_DIAG      = "robot/diagnostics"
 
-SID                  = "robot-sim"
+SID = "robot-sim-ahmed"
 HEARTBEAT_TIMEOUT_MS = 500
 CMD_TIMEOUT_MS       = 500
 MAX_V_MPS            = 0.3
@@ -41,7 +39,6 @@ class RobotSim:
         self.client = mqtt.Client(client_id=SID)
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        # Last Will: broker publishes "offline" if we die without saying goodbye
         self.client.will_set(TOPIC_STATUS, "offline", qos=1, retain=True)
 
     def _envelope(self):
@@ -74,33 +71,28 @@ class RobotSim:
         if payload.get("ver") != 1:
             print(f"[sim] bad version on {topic}: {payload.get('ver')}")
             return
-
         if topic == TOPIC_SUB_HB:
             self.last_hb_ms = int(time.time() * 1000)
             return
-
         if topic == TOPIC_SUB_CMD:
             thr = float(payload.get("thr", 0.0))
             turn = float(payload.get("turn", 0.0))
             self.target_v = thr * MAX_V_MPS
             self.target_w = turn * MAX_W_RADPS
             self.last_cmd_ms = int(time.time() * 1000)
-            print(f"[sim] DRIVE thr={thr:+.2f} turn={turn:+.2f} -> v={self.target_v:+.3f} w={self.target_w:+.3f}")
-
+            print(f"[sim] DRIVE thr={thr:+.2f} turn={turn:+.2f}")
         elif topic == TOPIC_SUB_MODE:
             new_mode = payload.get("mode", "MANUAL")
             if new_mode in ("MANUAL", "SEMI", "AUTO"):
                 self.mode = new_mode
                 self._publish(TOPIC_MODE, {"mode": self.mode})
                 print(f"[sim] MODE -> {self.mode}")
-
         elif topic == TOPIC_SUB_ESTOP:
             self.mode = "ESTOP"
             self.target_v = 0.0
             self.target_w = 0.0
             self._publish(TOPIC_MODE, {"mode": "ESTOP"})
             print("[sim] ESTOP latched")
-
         elif topic == TOPIC_SUB_RESET:
             now = int(time.time() * 1000)
             if now - self.last_hb_ms < HEARTBEAT_TIMEOUT_MS:
@@ -119,19 +111,15 @@ class RobotSim:
         try:
             while True:
                 now = int(time.time() * 1000)
-
                 if now - self.last_cmd_ms > CMD_TIMEOUT_MS:
                     self.target_v = 0.0
                     self.target_w = 0.0
-
                 if now - self.last_hb_ms > HEARTBEAT_TIMEOUT_MS and self.mode != "ESTOP":
                     self.mode = "ESTOP"
                     self._publish(TOPIC_MODE, {"mode": "ESTOP"})
                     print("[sim] watchdog -> ESTOP")
-
                 self.wheelL += (self.target_v - self.wheelL) * 0.2
                 self.wheelR += (self.target_v - self.wheelR) * 0.2
-
                 if now - last_telem >= 100:
                     last_telem = now
                     self._publish(TOPIC_TELEM, {
@@ -145,14 +133,12 @@ class RobotSim:
                         "pose_valid": True,
                         "link_ok": True,
                     })
-
                 if now - last_hb >= 200:
                     last_hb = now
                     self.client.publish(TOPIC_HB_ROBOT, json.dumps(self._envelope()))
-
                 if now - last_diag >= 1000:
                     last_diag = now
-                    self._publish(TOPIC_DIAG := "robot/diagnostics", {
+                    self._publish(TOPIC_DIAG, {
                         "uptime_s": int(time.time()) - self.start_time,
                         "heap_free": 234567,
                         "wifi_rssi": -42,
@@ -160,13 +146,12 @@ class RobotSim:
                         "batt_v": 7.4,
                         "batt_pct": 82,
                     })
-
                 time.sleep(0.01)
         except KeyboardInterrupt:
             pass
         finally:
             self.client.publish(TOPIC_STATUS, "offline", qos=1, retain=True)
-            time.sleep(0.2)   # give the broker a moment to receive it
+            time.sleep(0.2)
             self.client.loop_stop()
             self.client.disconnect()
 
